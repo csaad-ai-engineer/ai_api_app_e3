@@ -1,0 +1,137 @@
+version: "3.9"
+
+services:
+
+  # ── MLflow Tracking Server ──────────────────────────────────────────────────
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.10.0
+    container_name: ai-api-app-mlflow
+    ports:
+      - "5001:5000"
+    volumes:
+      - mlflow_artifacts:/mlflow/artifacts
+      - mlflow_db:/mlflow/db
+    command: >
+      mlflow server
+        --host 0.0.0.0
+        --port 5000
+        --backend-store-uri sqlite:////mlflow/db/mlflow.db
+        --default-artifact-root file:///mlflow/mlruns
+    networks:
+    - immo-net
+    healthcheck:
+      test: ["CMD-SHELL", "exit 0"]
+      interval: 5s
+      timeout: 3s
+      retries: 2
+      start_period: 15s
+  # ── API FastAPI ─────────────────────────────────────────────────────────────
+  api:
+    build:
+      context: api/
+      dockerfile: Dockerfile
+    container_name: ai-api-app-api
+    ports:
+      - "8000:8000"
+    environment:
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      MODEL_NAME:   ai-api-app-model
+      MODEL_STAGE:  Production
+      JWT_SECRET:   ${JWT_SECRET:-dev-secret-change-in-prod}
+    depends_on:
+      mlflow:
+        condition: service_healthy
+    volumes:
+      - ./api:/app   # Hot reload en dev
+      - ./ml:/app/ml          
+      - ./data:/app/data      
+      - ./mlruns:/mlflow/mlruns
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+    networks: [immo-net]
+
+  # ── Streamlit GUI ───────────────────────────────────────────────────────────
+  streamlit:
+    build:
+      context: streamlit_app/
+      dockerfile: Dockerfile
+    container_name: ai-api-app-streamlit
+    ports:
+      - "8501:8501"
+    environment:
+      API_URL:    http://api:8000
+      JWT_SECRET: ${JWT_SECRET:-dev-secret-change-in-prod}
+    depends_on:
+      api:
+        condition: service_healthy
+    volumes:
+      - ./streamlit_app:/app
+    command: streamlit run app.py --server.address 0.0.0.0 --server.port 8501
+    networks: [immo-net]
+
+  # ── Prometheus ──────────────────────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:v2.50.1
+    container_name: immo-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./infrastructure/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=30d
+    networks: [immo-net]
+
+  # ── Grafana ─────────────────────────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:10.3.3
+    container_name: immo-grafana
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./infrastructure/grafana/provisioning:/etc/grafana/provisioning
+      - ./infrastructure/grafana/dashboards:/var/lib/grafana/dashboards
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    depends_on:
+      - prometheus
+    networks: [immo-net]
+
+  # ── Monitoring Evidently (job périodique) ───────────────────────────────────
+  monitoring:
+    build:
+      context: monitoring/
+      dockerfile: Dockerfile
+    container_name: ai-api-app-monitoring
+    volumes:
+      - ./data:/data
+      - ./reports:/reports
+    environment:
+      MLFLOW_TRACKING_URI:  http://mlflow:5000
+      REPORTS_DIR:          /reports
+      REFERENCE_DATA_PATH:  /data/dvf_clean_reference.csv
+    depends_on:
+      - mlflow
+    command: >
+      sh -c "while true; do
+        python monitor.py /data/dvf_clean_reference.csv /data/dvf_clean.csv;
+        sleep 86400;
+      done"
+    networks: [immo-net]
+
+volumes:
+  mlflow_artifacts:
+  mlflow_db:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  immo-net:
+    driver: bridge
