@@ -16,8 +16,7 @@ import streamlit as st
 import requests
 import jwt
 import datetime
-from datetime import timezone
-from datetime import datetime, timedelta
+from datetime import timezone, datetime, timedelta
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
@@ -60,7 +59,7 @@ st.markdown("""
 def get_token():
     return jwt.encode(
         {"sub": "streamlit-app",
-         "exp": datetime.now() + timedelta(hours=1)}, 
+         "exp": datetime.now(timezone.utc) + timedelta(hours=1)}, 
         JWT_SECRET, algorithm="HS256"
     )
 
