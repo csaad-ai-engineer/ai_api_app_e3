@@ -177,16 +177,18 @@ def verify_token(credentials: HTTPAuthorizationCredentials = Security(security))
 
 # ── Endpoint token ─────────────────────────────────────────────────────────────
 # ─────────── Endpoint pour générer un token ─────────── 
-@app.post("/token") 
-def generate_token(data: LoginRequest): 
-    # Vérification de l'utilisateur et mot de passe 
-    if data.username in USERS_DB and USERS_DB[data.username] == data.password: 
-        payload = { "username": data.username, 
-                   "exp": datetime.now(timezone.utc) + timedelta(hours=1)  # token valide 1h # token valide 1h 
-                   } 
-        token = jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM) 
-        return {"access_token": token} 
-    else: 
+@app.post("/token")
+def generate_token(data: LoginRequest):
+    # Vérification de l'utilisateur et mot de passe
+    if data.username in USERS_DB and USERS_DB[data.username] == data.password:
+        exp_time = datetime.now(timezone.utc) + timedelta(hours=1)  # expiration 1h
+        payload = {
+            "username": data.username,
+            "exp": int(exp_time.timestamp())  # timestamp UNIX
+        }
+        token = jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+        return {"access_token": token}
+    else:
         raise HTTPException(status_code=401, detail="Utilisateur ou mot de passe invalide")
 
 # ── Endpoints ──────────────────────────────────────────────────────────────────
