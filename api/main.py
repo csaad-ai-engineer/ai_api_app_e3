@@ -40,7 +40,7 @@ logging.basicConfig(level=logging.INFO,
 logger = logging.getLogger("ai-api-app-api")
 
 # ── Configuration ──────────────────────────────────────────────────────────────
-MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI", "http://mlflow:5000")
+MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI", "https://mlflow-production-e3fe.up.railway.app")
 MODEL_NAME          = os.getenv("MODEL_NAME", "ai-api-app-model")
 MODEL_STAGE         = os.getenv("MODEL_STAGE", "Production")
 JWT_SECRET          = os.getenv("JWT_SECRET", "change-me-in-production")

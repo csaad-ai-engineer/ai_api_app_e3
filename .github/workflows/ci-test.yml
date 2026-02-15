@@ -1,7 +1,7 @@
 #
 # ═══════════════════════════════════════════════════════════════════════════════
 # PROJET: AI API App E3 - RNCP37827
-# FICHIER: .github/workflows/ci-cd.yml
+# FICHIER: .github/workflows/ci-test.yml
 # COMPÉTENCES: C13
 #
 # Pipeline GitHub Actions complet (6 jobs)
