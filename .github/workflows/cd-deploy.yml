@@ -1,0 +1,169 @@
+#
+# ═══════════════════════════════════════════════════════════════════════════════
+# PROJET: AI API App E3 - RNCP37827
+# FICHIER: .github/workflows/cd-deploy.yml
+# COMPÉTENCES: C13
+#
+# Pipeline CD : Déploiement automatisé sur Azure Container Apps
+# ═══════════════════════════════════════════════════════════════════════════════
+
+name: CD - Deploy Azure
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environnement cible'
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+        default: staging
+  
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+
+env:
+  IMAGE_API: ghcr.io/${{ github.repository }}/ai-api-app-api
+  IMAGE_STREAMLIT: ghcr.io/${{ github.repository }}/ai-api-app-streamlit
+  RESOURCE_GROUP: csaadRG
+
+jobs:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Deploy Staging
+  # ═══════════════════════════════════════════════════════════════════════
+  deploy-staging:
+    name: Deploy Staging
+    runs-on: ubuntu-latest
+    if: github.event.inputs.environment == 'staging'
+    environment: staging
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+      
+      - name: Deploy to Staging
+        run: |
+          echo "🚀 Déploiement Staging"
+          echo "Image API: ${{ env.IMAGE_API }}:latest"
+          echo "Image Streamlit: ${{ env.IMAGE_STREAMLIT }}:latest"
+          
+          # Déployer avec Bicep
+          az deployment group create \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --template-file infrastructure/azure-main.bicep \
+            --parameters \
+              environment=staging \
+              containerImageApi='${{ env.IMAGE_API }}:latest' \
+              containerImageStreamlit='${{ env.IMAGE_STREAMLIT }}:latest' \
+              jwtSecret='${{ secrets.JWT_SECRET_PROD }}' \
+              mlflowTrackingUri='${{ secrets.MLFLOW_TRACKING_URI }}'
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Deploy Production
+  # ═══════════════════════════════════════════════════════════════════════
+  deploy-production:
+    name: Deploy Production
+    runs-on: ubuntu-latest
+    if: github.event.inputs.environment == 'production' || (github.ref == 'refs/heads/main' && github.event_name == 'push')
+    environment: production
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+      
+      - name: Deploy to Production
+        run: |
+          echo "🚀 Déploiement Production"
+          
+          # Utiliser l'image avec le SHA du commit
+          IMAGE_TAG=${{ github.sha }}
+          
+          az deployment group create \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --template-file infrastructure/azure-main.bicep \
+            --parameters \
+              environment=production \
+              containerImageApi='${{ env.IMAGE_API }}:${IMAGE_TAG}' \
+              containerImageStreamlit='${{ env.IMAGE_STREAMLIT }}:${IMAGE_TAG}' \
+              jwtSecret='${{ secrets.JWT_SECRET_PROD }}' \
+              mlflowTrackingUri='${{ secrets.MLFLOW_TRACKING_URI }}'
+      
+      - name: Get Container App URLs
+        id: get-urls
+        run: |
+          API_FQDN=$(az containerapp show \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --name ai-api-app-api \
+            --query properties.configuration.ingress.fqdn -o tsv 2>/dev/null || echo "")
+          
+          STREAMLIT_FQDN=$(az containerapp show \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --name ai-api-app-streamlit \
+            --query properties.configuration.ingress.fqdn -o tsv 2>/dev/null || echo "")
+          
+          if [ -n "$API_FQDN" ]; then
+            echo "API_URL=https://$API_FQDN" >> $GITHUB_OUTPUT
+            echo "📡 API: https://$API_FQDN"
+          fi
+          
+          if [ -n "$STREAMLIT_FQDN" ]; then
+            echo "STREAMLIT_URL=https://$STREAMLIT_FQDN" >> $GITHUB_OUTPUT
+            echo "🎨 Streamlit: https://$STREAMLIT_FQDN"
+          fi
+      
+      - name: Smoke Test API
+        if: steps.get-urls.outputs.API_URL != ''
+        run: |
+          echo "Testing API health endpoint..."
+          curl -f ${{ steps.get-urls.outputs.API_URL }}/health || exit 1
+          echo "✅ API Health check passed"
+      
+      - name: Deployment Summary
+        run: |
+          echo "## 🚀 Déploiement Production Réussi" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- 📡 **API:** ${{ steps.get-urls.outputs.API_URL }}" >> $GITHUB_STEP_SUMMARY
+          echo "- 🎨 **Streamlit:** ${{ steps.get-urls.outputs.STREAMLIT_URL }}" >> $GITHUB_STEP_SUMMARY
+          echo "- 🏷️ **Version:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Monitoring hebdomadaire
+  # ═══════════════════════════════════════════════════════════════════════
+  monitoring:
+    name: Monitoring Evidently
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule'
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: pip install -r monitoring/requirements.txt
+      
+      - name: Run monitoring
+        run: python monitoring/monitor.py
+      
+      - name: Upload reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: monitoring-reports
+          path: reports/
