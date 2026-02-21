@@ -40,7 +40,7 @@ logging.basicConfig(level=logging.INFO,
 logger = logging.getLogger("ai-api-app-api")
 
 # ── Configuration ──────────────────────────────────────────────────────────────
-MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI", "https://mlflow-production-e3fe.up.railway.app")
+MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI", "http://mlflow:5001") #"https://mlflow-production-e3fe.up.railway.app"
 MODEL_NAME          = os.getenv("MODEL_NAME", "ai-api-app-model")
 MODEL_STAGE         = os.getenv("MODEL_STAGE", "Production")
 JWT_SECRET          = os.getenv("JWT_SECRET", "change-me-in-production")
@@ -220,7 +220,7 @@ def predict(
 
     start = time.perf_counter()
     try:
-        features = pd.DataFrame([request.dict()])
+        features = pd.DataFrame([request.model_dump()])
         prix = float(model.predict(features)[0])
 
         # Intervalle de confiance empirique ±15 %
@@ -267,10 +267,30 @@ def predict_batch(
     if model is None:
         raise HTTPException(status_code=503, detail="Modèle non disponible")
 
-    df = pd.DataFrame([r.dict() for r in requests])
-    prix = model.predict(df).tolist()
-    return {"predictions": [round(p, 2) for p in prix], "count": len(prix)}
+    results = []
+    for request in requests:
+        start = time.perf_counter()
+        try:
+            features = pd.DataFrame([request.model_dump()])
+            prix = float(model.predict(features)[0])
+            intervalle_bas  = prix * 0.85
+            intervalle_haut = prix * 1.15
+            prix_m2         = prix / request.surface_reelle_bati
+            latence_ms      = (time.perf_counter() - start) * 1000
 
+            results.append(PredictionResponse(
+                prix_estime=round(prix, 2),
+                intervalle_bas=round(intervalle_bas, 2),
+                intervalle_haut=round(intervalle_haut, 2),
+                prix_m2=round(prix_m2, 2),
+                modele_version=f"{MODEL_NAME}/{MODEL_STAGE}",
+                latence_ms=round(latence_ms, 2),
+            ))
+        except Exception as e:
+            logger.error(f"Erreur batch item : {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    return results
 
 @app.get("/model/info", tags=["Modèle"])
 def model_info(_token: dict = Depends(verify_token)):
