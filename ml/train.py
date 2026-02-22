@@ -39,7 +39,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Configuration
-MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI", "https://mlflow-production-e3fe.up.railway.app")
+MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI", "http://mlflow:5001") #"https://mlflow-production-e3fe.up.railway.app"
 EXPERIMENT_NAME     = "ai-api-app-e3"
 MODEL_NAME          = "ai-api-app-model"
 DATA_PATH           = os.getenv("DATA_PATH", "data/dvf_clean.csv")

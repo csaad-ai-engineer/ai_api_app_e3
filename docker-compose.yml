@@ -1,4 +1,3 @@
-version: "3.9"
 
 services:
 
@@ -15,8 +14,9 @@ services:
       mlflow server
         --host 0.0.0.0
         --port 5000
-        --backend-store-uri sqlite:////mlflow/db/mlflow.db
-        --default-artifact-root file:///mlflow/mlruns
+        --backend-store-uri sqlite:////tmp/mlflow.db
+        --artifacts-destination /tmp/mlruns 
+        --serve-artifacts
     networks:
     - immo-net
     healthcheck:
