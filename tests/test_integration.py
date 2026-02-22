@@ -121,17 +121,16 @@ class TestCycleCompletStreamlit:
         surfaces = list(range(20, 210, 10))  # 19 biens
         batch = [
             {**bien_paris,
-             "surface_reelle_bati": float(s),
-             "nombre_pieces_principales": max(1, s // 25)}
+            "surface_reelle_bati": float(s),
+            "nombre_pieces_principales": max(1, s // 25)}
             for s in surfaces
         ]
         resp = integration_client.post("/predict/batch", json=batch, headers=headers)
         assert resp.status_code == 200
         data = resp.json()
-        assert data["count"] == len(surfaces)
-        assert len(data["predictions"]) == len(surfaces)
-        assert all(p > 0 for p in data["predictions"])
-
+        assert isinstance(data, list)
+        assert len(data) == len(surfaces)
+        assert all(p["prix_estime"] > 0 for p in data)
 
 # ── Tests de tous les endpoints C10 ───────────────────────────────────────────
 class TestTousEndpointsStreamlit:
@@ -146,12 +145,15 @@ class TestTousEndpointsStreamlit:
     def test_POST_predict(self, integration_client, headers, bien_paris):
         assert integration_client.post("/predict", json=bien_paris,
                                        headers=headers).status_code == 200
-
+    
     def test_POST_predict_batch_un_element(self, integration_client, headers, bien_paris):
         resp = integration_client.post("/predict/batch",
-                                       json=[bien_paris], headers=headers)
+                                    json=[bien_paris], headers=headers)
         assert resp.status_code == 200
-        assert resp.json()["count"] == 1
+        data = resp.json()
+        assert isinstance(data, list)
+        assert len(data) == 1
+        assert "prix_estime" in data[0]
 
     def test_POST_predict_batch_max_100(self, integration_client, headers, bien_paris):
         """Le batch de 100 éléments doit passer."""
@@ -214,9 +216,8 @@ class TestResultatsInterpretation:
     def test_batch_ordre_preserve(self, integration_client, headers, bien_paris, bien_lyon):
         """L'ordre des prédictions batch doit correspondre à l'ordre des entrées."""
         resp = integration_client.post("/predict/batch",
-                                       json=[bien_paris, bien_lyon], headers=headers)
+                                   json=[bien_paris, bien_lyon], headers=headers)
         data = resp.json()
-        assert data["count"] == 2
-        assert len(data["predictions"]) == 2
-        # Les deux prédictions sont > 0 et dans le bon nombre
-        assert all(p > 0 for p in data["predictions"])
+        assert isinstance(data, list)
+        assert len(data) == 2
+        assert all(p["prix_estime"] > 0 for p in data)

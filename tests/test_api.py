@@ -16,10 +16,9 @@ JWT_SECRET    = "test-secret"
 JWT_ALGORITHM = "HS256"
 
 def make_token(secret: str = JWT_SECRET, expired: bool = False) -> str:
-    exp = datetime.datetime.utcnow()
+    exp = datetime.datetime.now(datetime.timezone.utc)
     exp += datetime.timedelta(seconds=-1) if expired else datetime.timedelta(hours=1)
     return jwt.encode({"sub": "test", "exp": exp}, secret, algorithm=JWT_ALGORITHM)
-
 
 @pytest.fixture(scope="module")
 def client():
@@ -160,11 +159,21 @@ class TestBatch:
 
     def test_batch_predict_multiple_items(self, client, valid_payload, auth_headers):
         import api.main as api_module
-        api_module.model.predict.return_value = np.array([200_000.0, 350_000.0])
-        payload = [valid_payload, {**valid_payload, "surface_reelle_bati": 120.0}]
+        api_module.model.predict.side_effect = [
+            np.array([200_000.0]),
+            np.array([350_000.0]),
+        ]
+        payload = [
+            valid_payload,
+            {**valid_payload, "surface_reelle_bati": 120.0}
+        ]
         resp = client.post("/predict/batch", json=payload, headers=auth_headers)
         assert resp.status_code == 200
-        assert resp.json()["count"] == 2
+        data = resp.json()
+        assert isinstance(data, list)
+        assert len(data) == 2
+        assert data[0]["prix_estime"] == 200_000.0
+        assert data[1]["prix_estime"] == 350_000.0
 
     def test_batch_over_100_returns_400(self, client, valid_payload, auth_headers):
         payload = [valid_payload] * 101
